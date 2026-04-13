@@ -1,17 +1,15 @@
 package com.open.spring.mvc.dbFix;
 
-import org.springframework.boot.autoconfigure.orm.jpa.JpaProperties;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-@Configuration
+import org.springframework.boot.autoconfigure.orm.jpa.JpaProperties;
+
+//@Configuration
 public class DatabaseConfigListener {
     
-    @Bean
+    //@Bean
     public JpaProperties jpaProperties() {
         JpaProperties properties = new JpaProperties();
         

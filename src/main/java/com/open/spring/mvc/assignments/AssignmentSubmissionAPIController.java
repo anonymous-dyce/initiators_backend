@@ -10,6 +10,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+// content is now Map<String,Object> — plain strings from old rows are handled by SubmissionContentConverter fallback
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,7 +127,7 @@ public class AssignmentSubmissionAPIController {
     public static class SubmitAssignmentDto {
         public Long submitterId;
         public Boolean isGroup;
-        public String content;
+        public Map<String, Object> content;
         public String comment;
         public Boolean isLate;
     }
@@ -174,7 +176,7 @@ public class AssignmentSubmissionAPIController {
         public Long assignmentId;
         public Long submitterId;
         public Boolean isGroupSubmission;
-        public String content;
+        public Map<String, Object> content;
         public String comment;
         public Boolean isLate;
     }

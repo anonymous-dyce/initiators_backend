@@ -64,23 +64,48 @@ def check_local_server():
         return False
 
 
+def extract_jwt_from_response(response):
+    """
+    Extract jwt_java_spring token from Set-Cookie header.
+    Spring sets it via ResponseEntity header, which requests may not parse into response.cookies.
+    """
+    set_cookie = response.headers.get("Set-Cookie", "")
+    for part in set_cookie.split(";"):
+        part = part.strip()
+        if part.startswith("jwt_java_spring="):
+            return part.split("=", 1)[1]
+    return None
+
+
 def authenticate_to_local(credentials):
-    """Authenticate to local server via form login; return session with cookies"""
+    """Authenticate to local server via JWT; return session with JWT cookie"""
     session = requests.Session()
     auth_data = {
-        "username": credentials["LOCAL_ADMIN_UID"],
+        "uid": credentials["LOCAL_ADMIN_UID"],
         "password": credentials["ADMIN_PASSWORD"],
     }
-    auth_resp = session.post(LOCAL_LOGIN_URL, data=auth_data, timeout=10, allow_redirects=False)
+    auth_resp = session.post(f"{LOCAL_URL}/authenticate", json=auth_data, timeout=10)
 
-    if not (auth_resp.status_code == 302 and session.cookies):
+    if auth_resp.status_code != 200:
         msg_preview = auth_resp.text[:200] if auth_resp.text else "No response body"
         print(f" Error: Local authentication failed (HTTP {auth_resp.status_code}).")
-        print("   Ensure the credentials are correct and login form is enabled.")
+        print("   Ensure LOCAL_ADMIN_UID and ADMIN_PASSWORD are correct.")
         if msg_preview:
             print(f"   Response preview: {msg_preview}")
         sys.exit(1)
 
+    # Try standard cookie jar first, then fall back to parsing the raw Set-Cookie header
+    token = (
+        session.cookies.get("jwt_java_spring")
+        or auth_resp.cookies.get("jwt_java_spring")
+        or extract_jwt_from_response(auth_resp)
+    )
+    if not token:
+        print(" Error: Local authentication succeeded but no JWT token received.")
+        print(f"   Response headers: {dict(auth_resp.headers)}")
+        sys.exit(1)
+
+    session.cookies.set("jwt_java_spring", token, path="/api")
     return session
 
 
@@ -154,14 +179,22 @@ def authenticate_to_production(credentials):
         response = session.post(auth_url, json=auth_data, timeout=10)
 
         if response.status_code == 200:
-            if "jwt_java_spring" in session.cookies:
+            token = (
+                session.cookies.get("jwt_java_spring")
+                or response.cookies.get("jwt_java_spring")
+                or extract_jwt_from_response(response)
+            )
+            if token:
+                session.cookies.set("jwt_java_spring", token, path="/api")
                 print(f" Authenticated as '{credentials['PROD_ADMIN_UID']}'")
                 return session
             else:
                 print(" Authentication succeeded but no JWT token received")
+                print(f"   Response body: {response.text[:200]}")
                 sys.exit(1)
         else:
             print(f" Authentication failed: HTTP {response.status_code}")
+            print(f"   Response body: {response.text[:200]}")
             sys.exit(1)
 
     except requests.exceptions.HTTPError as e:
@@ -179,29 +212,39 @@ def upload_to_production(export_file, session):
     print(f"   Target: {PROD_IMPORT_URL}")
 
     try:
-        # X-Origin: client triggers JWT auth on the server side
-        headers = {"X-Origin": "client"}
-
         with open(export_file, "rb") as f:
             files = {"file": (export_file.name, f, "application/json")}
             response = session.post(
                 PROD_IMPORT_URL,
                 files=files,
-                headers=headers,
                 timeout=1200,
             )
             response.raise_for_status()
 
-        print(" Database uploaded successfully!")
+        # Check if we were redirected to a login page (auth failure)
+        if "/login" in response.url:
+            print(" Upload failed: redirected to login page — authentication was rejected")
+            sys.exit(1)
+
         print(f"   Response status: {response.status_code}")
 
-        if "text/html" in response.headers.get("Content-Type", ""):
-            if "success" in response.text.lower():
+        content_type = response.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            body_lower = response.text.lower()
+            if "db_error" in response.text or ("error" in body_lower and "success" not in body_lower):
+                print(" Import status: ERROR (check production logs)")
+                print(f"   Response preview: {response.text[:500]}")
+                sys.exit(1)
+            else:
+                print(" Database uploaded successfully!")
                 print("   Import status: SUCCESS")
-            elif "error" in response.text.lower():
-                print("   Import status: ERROR (check production logs)")
-                print(f"   Response preview: {response.text[:200]}")
         else:
+            body_lower = response.text.lower()
+            if "error" in body_lower:
+                print(" Import status: ERROR")
+                print(f"   Response: {response.text[:500]}")
+                sys.exit(1)
+            print(" Database uploaded successfully!")
             print(f"   Response: {response.text[:200]}")
 
     except requests.exceptions.HTTPError as e:

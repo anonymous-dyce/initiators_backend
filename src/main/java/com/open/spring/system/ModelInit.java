@@ -424,7 +424,7 @@ public class ModelInit {
                     assignmentJpaRepository.save(newAssignment);
 
                     // create sample submission
-                    submissionJPA.save(new AssignmentSubmission(newAssignment, personJpaRepository.findByUid("madam"), "test submission","test comment", false));
+                    submissionJPA.save(new AssignmentSubmission(newAssignment, personJpaRepository.findByUid("madam"), java.util.Map.of("type", "link", "url", "test submission"), "test comment", false));
                 }
             }
 

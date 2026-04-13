@@ -1,5 +1,7 @@
 package com.open.spring.mvc.assignments;
 
+import java.util.Map;
+
 import com.open.spring.mvc.assignments.AssignmentSubmissionAPIController.AssignmentReturnDto;
 import com.open.spring.mvc.groups.Groups;
 import com.open.spring.mvc.groups.Submitter;
@@ -14,7 +16,7 @@ public class AssignmentSubmissionReturnDto {
     public AssignmentReturnDto assignment;
     public Submitter submitter;
     public Boolean isGroup;
-    public String content;
+    public Map<String, Object> content;
     public String comment;
     public Double grade;
     public String feedback;
