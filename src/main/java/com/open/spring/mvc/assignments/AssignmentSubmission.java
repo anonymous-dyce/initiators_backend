@@ -2,6 +2,7 @@ package com.open.spring.mvc.assignments;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -12,6 +13,8 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 import com.open.spring.mvc.groups.Submitter;
 import com.open.spring.mvc.person.Person;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -54,7 +57,9 @@ public class AssignmentSubmission {
     )
     private List<Person> assignedGraders;
 
-    private String content;
+    @Convert(converter = SubmissionContentConverter.class)
+    @Column(columnDefinition = "text")
+    private Map<String, Object> content;
     private Double grade;
     private String feedback;
 
@@ -64,7 +69,7 @@ public class AssignmentSubmission {
 
     private Boolean isLate;
     
-    public AssignmentSubmission(Assignment assignment, Submitter submitter, String content, String comment, boolean isLate) {
+    public AssignmentSubmission(Assignment assignment, Submitter submitter, Map<String, Object> content, String comment, boolean isLate) {
         this.assignment = assignment;
         this.submitter = submitter;
         this.content = content;

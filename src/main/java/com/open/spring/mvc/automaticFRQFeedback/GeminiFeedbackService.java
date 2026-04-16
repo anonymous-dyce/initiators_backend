@@ -71,8 +71,17 @@ public class GeminiFeedbackService {
         Integer maxScore = assignment != null && assignment.getPoints() != null ? assignment.getPoints().intValue() : 1;
         String rubric = assignment != null ? (assignment.getDescription() == null ? assignment.getName() : assignment.getDescription()) : "";
 
+        // Extract submission text for Gemini — content is now a JSON map
+        java.util.Map<String, Object> contentMap = submission.getContent();
+        String submissionText = "";
+        if (contentMap != null) {
+            Object url = contentMap.get("url");
+            Object notes = contentMap.get("notes");
+            submissionText = (url != null ? String.valueOf(url) : "") + (notes != null && !String.valueOf(notes).isEmpty() ? "\n" + notes : "");
+        }
+
         // Call Gemini
-        String prompt = buildPrompt(year, questionNumber, topic, submission.getContent(), rubric, maxScore);
+        String prompt = buildPrompt(year, questionNumber, topic, submissionText, rubric, maxScore);
         String raw = callGeminiAPI(prompt);
         FeedbackResponse parsed = parseAndValidate(raw);
 

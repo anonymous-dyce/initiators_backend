@@ -6,17 +6,27 @@ public class Grade {
     private String assignment;
     private Double score;
     private String teacherComments;
-    private String submission;
+    private Object submission;
+    private String submittedAt;
 
     public Grade() {
     }
 
-    public Grade(String uid, String assignment, Double score, String teacherComments, String submission) {
+    public Grade(String uid, String assignment, Double score, String teacherComments, Object submission) {
         this.uid = uid;
         this.assignment = assignment;
         this.score = score;
         this.teacherComments = teacherComments;
         this.submission = submission;
+    }
+
+    public Grade(String uid, String assignment, Double score, String teacherComments, Object submission, String submittedAt) {
+        this.uid = uid;
+        this.assignment = assignment;
+        this.score = score;
+        this.teacherComments = teacherComments;
+        this.submission = submission;
+        this.submittedAt = submittedAt;
     }
 
     // Getters and setters (must have all of these)
@@ -35,6 +45,9 @@ public class Grade {
     public String getTeacherComments() { return teacherComments; }
     public void setTeacherComments(String teacherComments) { this.teacherComments = teacherComments; }
 
-    public String getSubmission() { return submission; }
-    public void setSubmission(String submission) { this.submission = submission; }
+    public Object getSubmission() { return submission; }
+    public void setSubmission(Object submission) { this.submission = submission; }
+
+    public String getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(String submittedAt) { this.submittedAt = submittedAt; }
 }

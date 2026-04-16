@@ -1,5 +1,7 @@
 package com.open.spring.mvc.assignments;
 
+import java.util.Map;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -7,7 +9,7 @@ import lombok.Setter;
 @Setter
 public class AssignmentSubmissionsDTO {
     private Long id;
-    private String content;
+    private Map<String, Object> content;
     private String comment;
 
     public AssignmentSubmissionsDTO(AssignmentSubmission submission) {

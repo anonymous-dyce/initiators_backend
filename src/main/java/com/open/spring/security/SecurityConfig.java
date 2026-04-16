@@ -93,6 +93,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/person/create", "/api/person/create/").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/person/create").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/person/create/").permitAll()
+                        // Public grades submission - no authentication required
+                        .requestMatchers(HttpMethod.POST, "/api/grades").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/grades/").permitAll()
+                        // ← GIST CREATION ENDPOINTS - PUBLIC (NO AUTH)
+                        .requestMatchers(HttpMethod.POST, "/api/grades/create-gist").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/grades/create-gist/").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/person/faces").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/person/identify").permitAll()
                         // Admin-only endpoints, beware of DELETE operations and impact to cascading relational data 
@@ -146,6 +152,7 @@ public class SecurityConfig {
                         // ========== LEGACY API ENDPOINTS (NOW AUTHENTICATED) ==========
                         // These endpoints now require authenticated roles
                         .requestMatchers("/api/analytics/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
+                        .requestMatchers("/api/grades**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
                         .requestMatchers("/api/plant/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
                         .requestMatchers("/api/groups/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
                         .requestMatchers("/api/grade-prediction/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN", "ROLE_TEACHER", "ROLE_STUDENT")
@@ -210,6 +217,8 @@ public class SecurityConfig {
         policy.put("/api/person/create", "permitAll");
         policy.put("/api/person/create/", "permitAll");
         policy.put("POST /api/person/create", "permitAll");
+        policy.put("POST /api/grades", "permitAll");
+        policy.put("POST /api/grades/", "permitAll");
         policy.put("DELETE /api/person/**", "ROLE_ADMIN");
         policy.put("PUT /api/person/**", "ROLE_ADMIN");
         policy.put("GET /api/person/uid/**", "permitAll");

@@ -196,10 +196,12 @@ Note, steps 1,2,3,5 are on your development (LOCAL) server. You need to update y
 
 3. Test your changes locally
 
-4. On production server (in cockpit):
+4. On production server (in cockpit: open/spring directory):
 - Backup DB in volumes directory: `cp sqlite.db backups/sqlite_year-month-day.db`
+- Take spring instance down: `docker compose down`
 - Update code: `git pull`
 - Update schema: `python scripts/db_init.py`
+- Bring spring instance up: `docker compose up -d --build`
 
 5. Push local changes to production: `python scripts/db_local2prod.py`
 (Requires admin password from production in .env)
