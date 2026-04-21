@@ -142,7 +142,7 @@ public class CalendarIssueController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "Authentication required"));
         }
 
-        if (!calendarIssueService.deleteIssue(id, userDetails.getUsername(), hasPrivilegedRole(userDetails))) {
+        if (!calendarIssueService.deleteIssue(id, userDetails.getUsername())) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Issue not found"));
         }
         return ResponseEntity.ok(Map.of("success", true));
@@ -170,6 +170,7 @@ public class CalendarIssueController {
         data.put("id", issue.getId());
         data.put("title", issue.getTitle());
         data.put("description", issue.getDescription());
+        data.put("author", issue.getOwnerUid());
         data.put("status", issue.getStatus() == null ? null : issue.getStatus().name().toLowerCase());
         data.put("priority", issue.getPriority() == null ? null : issue.getPriority().name().toLowerCase());
         data.put("dueDate", issue.getDueDate() == null ? null : issue.getDueDate().toString());

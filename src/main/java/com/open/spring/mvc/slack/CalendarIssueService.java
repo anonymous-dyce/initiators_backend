@@ -82,12 +82,8 @@ public class CalendarIssueService {
         });
     }
 
-    public boolean deleteIssue(Long id, String requesterUid, boolean privileged) {
-        boolean exists = privileged
-                ? calendarIssueRepository.existsById(id)
-                : calendarIssueRepository.existsByIdAndOwnerUid(id, requesterUid);
-
-        if (!exists) {
+    public boolean deleteIssue(Long id, String requesterUid) {
+        if (!calendarIssueRepository.existsByIdAndOwnerUid(id, requesterUid)) {
             return false;
         }
         calendarIssueRepository.deleteById(id);
