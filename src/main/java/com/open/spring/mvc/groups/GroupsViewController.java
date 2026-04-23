@@ -3,6 +3,7 @@ package com.open.spring.mvc.groups;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -24,6 +25,9 @@ public class GroupsViewController {
 
     @Autowired
     private PersonDetailsService personRepository;
+
+    @Value("${socket.port:8589}")
+    private int socketPort;
 
     // ===== "Read" Get mappings =====
     
@@ -147,6 +151,7 @@ public class GroupsViewController {
                         : repository.listAllWithMembers());
 
         model.addAttribute("groups", list);
+        model.addAttribute("chatSocketPort", socketPort);
         if (person != null) {
             model.addAttribute("chatUsername", person.getName());
         }

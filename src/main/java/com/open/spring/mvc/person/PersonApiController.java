@@ -134,6 +134,11 @@ public class PersonApiController {
         for (Person person : people) {
             Map<String, String> face = new HashMap<>();
             face.put("uid", person.getUid());
+            String name = person.getName();
+            if (name == null || name.isEmpty()) {
+                name = person.getUid();
+            }
+            face.put("name", name);
             face.put("faceData", person.getFaceData());
             faces.add(face);
         }
