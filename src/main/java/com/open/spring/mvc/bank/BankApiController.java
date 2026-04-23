@@ -245,7 +245,11 @@ public class BankApiController {
     
     @Scheduled(fixedRate = 86400000)
     public void scheduledInterestApplication() {
-        applyInterestToAllLoans();
+        try {
+            applyInterestToAllLoans();
+        } catch (Exception e) {
+            System.err.println("Scheduled interest application skipped due to database error: " + e.getMessage());
+        }
     }
     
     @PostMapping("/newLoanAmountInterest")

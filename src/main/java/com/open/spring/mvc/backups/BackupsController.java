@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -48,6 +47,7 @@ import com.open.spring.mvc.bank.Bank;
 import com.open.spring.mvc.bank.BankJpaRepository;
 
 import jakarta.servlet.http.HttpServletResponse;
+import javax.sql.DataSource;
 
 /**
  * Consolidated controller for all backup operations.
@@ -59,7 +59,6 @@ import jakarta.servlet.http.HttpServletResponse;
 public class BackupsController {
 
     // ========== FULL DATABASE BACKUP CONFIGURATION ==========
-    private static final String DB_PATH = "./volumes/sqlite.db";
     private static final String BACKUP_DIR = "./volumes/backups/";
     
     // ========== SPECIFIC ENDPOINT BACKUP CONFIGURATION ==========
@@ -79,6 +78,9 @@ public class BackupsController {
 
     @Autowired
     private RestTemplate restTemplate;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private CalendarEventService calendarEventService;
@@ -133,7 +135,7 @@ public class BackupsController {
     private Map<String, List<Map<String, Object>>> exportData() {
         Map<String, List<Map<String, Object>>> result = new HashMap<>();
 
-        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH);
+        try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
 
             // Get the list of tables in the database
@@ -141,7 +143,7 @@ public class BackupsController {
 
             // Loop through each table and retrieve its data
             for (String tableName : tableNames) {
-                List<Map<String, Object>> tableData = getTableData(statement, tableName);
+                List<Map<String, Object>> tableData = getTableData(statement, tableName, connection);
                 result.put(tableName, tableData);
             }
 
@@ -172,10 +174,11 @@ public class BackupsController {
     /**
      * Helper method to retrieve data from a specific table
      */
-    private List<Map<String, Object>> getTableData(Statement statement, String tableName) throws SQLException {
+    private List<Map<String, Object>> getTableData(Statement statement, String tableName, Connection connection) throws SQLException {
         List<Map<String, Object>> tableData = new ArrayList<>();
+        String escapedTableName = quoteIdentifier(connection, tableName);
 
-        try (ResultSet resultSet = statement.executeQuery("SELECT * FROM " + tableName)) {
+        try (ResultSet resultSet = statement.executeQuery("SELECT * FROM " + escapedTableName)) {
             ResultSetMetaData metaData = resultSet.getMetaData();
             int columnCount = metaData.getColumnCount();
 
@@ -206,6 +209,16 @@ public class BackupsController {
         return tableData;
     }
 
+    private String quoteIdentifier(Connection connection, String identifier) throws SQLException {
+        String quote = connection.getMetaData().getIdentifierQuoteString();
+        if (quote == null || quote.isBlank()) {
+            return identifier;
+        }
+
+        String safeIdentifier = identifier.replace(quote, quote + quote);
+        return quote + safeIdentifier + quote;
+    }
+
     // ========== SHUTDOWN BACKUP OPERATIONS ==========
 
     /**
@@ -215,12 +228,20 @@ public class BackupsController {
     @EventListener
     public void handleContextClose(ContextClosedEvent event) {
         System.out.println("Server is stopping. Starting backup process...");
-        
-        // Perform full database backup
-        performFullDatabaseBackup();
-        
-        // Perform specific endpoint backups
-        performSpecificEndpointBackups();
+
+        try {
+            // Perform full database backup
+            performFullDatabaseBackup();
+        } catch (Exception e) {
+            System.err.println("Full database backup failed during shutdown: " + e.getMessage());
+        }
+
+        try {
+            // Perform specific endpoint backups
+            performSpecificEndpointBackups();
+        } catch (Exception e) {
+            System.err.println("Specific endpoint backups failed during shutdown: " + e.getMessage());
+        }
         
         System.out.println("All backup operations completed.");
     }

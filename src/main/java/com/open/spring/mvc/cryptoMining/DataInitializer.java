@@ -1,5 +1,10 @@
 package com.open.spring.mvc.cryptoMining;
 
+import java.sql.Connection;
+import java.sql.SQLException;
+
+import javax.sql.DataSource;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
@@ -12,18 +17,29 @@ public class DataInitializer implements CommandLineRunner {
     @Autowired
     private EnergyRepository energyRepository;
 
+    @Autowired
+    private DataSource dataSource;
+
     @Override
     public void run(String... args) {
         // Initialize GPUs if none exist
         if (gpuRepository.count() == 0) {
             initializeGPUs();
         }
-        
-        // Always initialize Energy Plans
-        System.out.println("Initializing energy plans...");
-        energyRepository.deleteAll(); // Clear existing plans
-        initializeEnergyPlans();
-        System.out.println("Energy plans initialized successfully");
+
+        if (!isSqliteDatabase()) {
+            System.out.println("Skipping energy plan initialization on non-SQLite database");
+            return;
+        }
+
+        // Keep startup alive even if local schema cannot write to energy yet.
+        try {
+            System.out.println("Initializing energy plans...");
+            initializeEnergyPlans();
+            System.out.println("Energy plans initialized successfully");
+        } catch (Exception e) {
+            System.err.println("Skipping energy plan initialization due to database schema mismatch: " + e.getMessage());
+        }
     }
 
     private void initializeGPUs() {
@@ -72,7 +88,20 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void createEnergyPlan(String supplierName, double EEM) {
+        if (!energyRepository.findBySupplierName(supplierName).isEmpty()) {
+            return;
+        }
+
         Energy energy = new Energy(supplierName, EEM);
         energyRepository.save(energy);
+    }
+
+    private boolean isSqliteDatabase() {
+        try (Connection connection = dataSource.getConnection()) {
+            String jdbcUrl = connection.getMetaData().getURL();
+            return jdbcUrl != null && jdbcUrl.startsWith("jdbc:sqlite:");
+        } catch (SQLException e) {
+            return false;
+        }
     }
 }

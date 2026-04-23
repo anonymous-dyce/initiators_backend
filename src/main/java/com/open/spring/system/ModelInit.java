@@ -102,9 +102,10 @@ public class ModelInit {
     CommandLineRunner run() {
         return args -> {
             // Ensure unified `adventure` table exists before any seeding
-            try {
-                if (dataSource != null) {
-                    try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
+            if (isSqliteDatabase()) {
+                try {
+                    if (dataSource != null) {
+                        try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
                         // ========== DATABASE CLEANUP - DISABLED ==========
                         // Database cleanup has been disabled to prevent tables from being dropped on startup
                         // Uncomment the section below if you need to manually clean up specific tables
@@ -260,16 +261,20 @@ public class ModelInit {
                         } catch (Throwable t) {
                             // don't fail startup for seeding issues
                         }
+                        }
                     }
+                } catch (SQLException e) {
+                    System.err.println("Failed to ensure 'adventure' table: " + e.getMessage());
                 }
-            } catch (SQLException e) {
-                System.err.println("Failed to ensure 'adventure' table: " + e.getMessage());
+            } else {
+                System.out.println("Skipping SQLite-only 'adventure' bootstrap on non-SQLite database");
             }
 
                 // Ensure unified `games` table exists before any seeding
-                try {
-                    if (dataSource != null) {
-                        try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
+                if (isSqliteDatabase()) {
+                    try {
+                        if (dataSource != null) {
+                            try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
                             String createGames = "CREATE TABLE IF NOT EXISTS games ("
                                     + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                                     + "person_id INTEGER,"
@@ -298,10 +303,13 @@ public class ModelInit {
                                 }
                             } catch (Throwable t) {
                             }
+                            }
                         }
+                    } catch (SQLException e) {
+                        System.err.println("Failed to ensure 'games' table: " + e.getMessage());
                     }
-                } catch (SQLException e) {
-                    System.err.println("Failed to ensure 'games' table: " + e.getMessage());
+                } else {
+                    System.out.println("Skipping SQLite-only 'games' bootstrap on non-SQLite database");
                 }
 
             if (new File("volumes/.skip-modelinit").exists()) {
@@ -513,5 +521,18 @@ public class ModelInit {
                 System.err.println("Error initializing Stats data: " + e.getMessage());
             }
         };
+    }
+
+    private boolean isSqliteDatabase() {
+        if (dataSource == null) {
+            return false;
+        }
+
+        try (Connection connection = dataSource.getConnection()) {
+            String jdbcUrl = connection.getMetaData().getURL();
+            return jdbcUrl != null && jdbcUrl.startsWith("jdbc:sqlite:");
+        } catch (SQLException e) {
+            return false;
+        }
     }
 }

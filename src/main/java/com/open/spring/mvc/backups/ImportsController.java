@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -58,6 +57,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import javax.sql.DataSource;
+
 /**
  * Consolidated controller for all import operations.
  * Handles both full database imports and specific API endpoint imports.
@@ -68,7 +69,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class ImportsController {
 
     // ========== FULL DATABASE IMPORT CONFIGURATION ==========
-    private static final String DB_PATH = "./volumes/sqlite.db";
     private static final String BACKUP_DIR = "./volumes/backups/";
     private static final String LOG_FILE_PATH = "./volumes/logs/restore_operations.log";
 
@@ -87,6 +87,9 @@ public class ImportsController {
     @Autowired
     private RestTemplate restTemplate;
 
+    @Autowired
+    private DataSource dataSource;
+
     // Configuration for import endpoints and their corresponding directories
     private final List<ImportEndpoint> endpoints = Arrays.asList(
         new ImportEndpoint("/api/people/bulk/import", "person"),
@@ -103,20 +106,24 @@ public class ImportsController {
      */
     @EventListener(ApplicationReadyEvent.class)
     public synchronized void initializeOnStartup() {
-        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
-            // Enable WAL mode for better concurrency
-            enableWalMode(connection);
-            
-            // Set a busy timeout to wait for locks
-            setBusyTimeout(connection, 30000); // 30 seconds
-            
-            // Check SQLite version for debugging
-            checkSqliteVersion(connection);
-            
-            // Verify database integrity
-            verifyDatabaseIntegrity(connection);
-            
-            System.out.println("Database initialized successfully in WAL mode.");
+        try (Connection connection = dataSource.getConnection()) {
+            if (isSqliteDatabase(connection)) {
+                // Enable WAL mode for better concurrency
+                enableWalMode(connection);
+
+                // Set a busy timeout to wait for locks
+                setBusyTimeout(connection, 30000); // 30 seconds
+
+                // Check SQLite version for debugging
+                checkSqliteVersion(connection);
+
+                // Verify database integrity
+                verifyDatabaseIntegrity(connection);
+
+                System.out.println("Database initialized successfully in WAL mode.");
+            } else {
+                System.out.println("Database initialized successfully for non-SQLite datasource.");
+            }
         } catch (SQLException e) {
             e.printStackTrace();
             System.err.println("Failed to initialize database: " + e.getMessage());
@@ -464,7 +471,7 @@ public class ImportsController {
             Map<String, List<Map<String, Object>>> data = objectMapper.readValue(rawJson, Map.class);
             
             // FIRST PASS: Create all tables that don't exist yet
-            try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
+            try (Connection connection = dataSource.getConnection()) {
                 connection.setAutoCommit(false); // Start transaction
                 
                 // Get existing tables
@@ -503,15 +510,17 @@ public class ImportsController {
         while (retries > 0) {
             try {
                 // First establish a connection and set WAL mode BEFORE starting any transaction
-                try (Connection setupConnection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
-                    enableWalMode(setupConnection);
-                    setBusyTimeout(setupConnection, 30000);
-                    checkSqliteVersion(setupConnection);
-                    verifyDatabaseIntegrity(setupConnection);
+                try (Connection setupConnection = dataSource.getConnection()) {
+                    if (isSqliteDatabase(setupConnection)) {
+                        enableWalMode(setupConnection);
+                        setBusyTimeout(setupConnection, 30000);
+                        checkSqliteVersion(setupConnection);
+                        verifyDatabaseIntegrity(setupConnection);
+                    }
                 }
                 
                 // Now create a new connection for the transaction
-                try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
+                try (Connection connection = dataSource.getConnection()) {
                     connection.setAutoCommit(false);
                     
                     // Read and parse JSON file
@@ -553,12 +562,14 @@ public class ImportsController {
      * Sanitize and process the data for full database import
      */
     private void sanitizeAndProcessData(Map<String, List<Map<String, Object>>> data, boolean removeExcessData) throws SQLException {
-        try (Connection setupConnection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
-            enableWalMode(setupConnection);
-            setBusyTimeout(setupConnection, 30000);
+        try (Connection setupConnection = dataSource.getConnection()) {
+            if (isSqliteDatabase(setupConnection)) {
+                enableWalMode(setupConnection);
+                setBusyTimeout(setupConnection, 30000);
+            }
         }
         
-        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + DB_PATH)) {
+        try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             
             Set<String> allTables = getAllTables(connection);
@@ -721,6 +732,11 @@ public class ImportsController {
                 .filter(endpoint -> endpoint.getDirectoryName().equals(directoryName))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private boolean isSqliteDatabase(Connection connection) throws SQLException {
+        String url = connection.getMetaData().getURL();
+        return url != null && url.startsWith("jdbc:sqlite:");
     }
 
     // ========== DATABASE UTILITY METHODS ==========
