@@ -69,8 +69,6 @@ public class PersonApiController {
     @Autowired
     private PersonDetailsService personDetailsService;
 
-    @Autowired
-    private FaceRecognitionService faceRecognitionService;
 
     @Autowired
     private TinkleJPARepository tinkleRepository;
@@ -145,44 +143,6 @@ public class PersonApiController {
         return new ResponseEntity<>(faces, HttpStatus.OK);
     }
 
-    /**
-     * Identify a person from the provided camera image using face data stored in Spring.
-     *
-     * This implementation now runs DeepFace through a local Python subprocess rather than proxying to Flask.
-     *
-     * @param body map containing "image" (base64) and optional "threshold"
-     * @return map containing match result or error
-     */
-    @PostMapping("/person/identify")
-    public ResponseEntity<Map<String, Object>> identifyPerson(@RequestBody Map<String, Object> body) {
-        String image = (String) body.get("image");
-        Double thresholdValue = 0.40; // Default threshold
-
-        if (body.containsKey("threshold")) {
-            Object thresholdObj = body.get("threshold");
-            if (thresholdObj instanceof Number) {
-                thresholdValue = ((Number) thresholdObj).doubleValue();
-            } else if (thresholdObj instanceof String) {
-                try {
-                    thresholdValue = Double.parseDouble((String) thresholdObj);
-                } catch (NumberFormatException e) {
-                    // Fall back to default
-                }
-            }
-        }
-
-        if (image == null || image.isEmpty()) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("match", false);
-            error.put("message", "No image provided");
-            return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
-        }
-
-        logger.info("IDENTIFY request received. Image length: {}", image.length());
-        Map<String, Object> result = faceRecognitionService.identify(image, thresholdValue);
-        logger.info("IDENTIFY result: {}", result.get("match"));
-        return new ResponseEntity<>(result, HttpStatus.OK);
-    }
 
     /**
      * Update a Person entity by its ID (using current authenticated user).
