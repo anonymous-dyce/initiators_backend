@@ -294,9 +294,13 @@
 
         function buildChatSocketEndpoint() {
             const protocol = window.location.protocol;
-            const hostname = window.location.hostname;
-            const endpoint = `${protocol}//${hostname}:${chatSocketPort}/ws-chat`;
-            console.log("[group-tracker] SockJS request URL:", endpoint, "(port:", chatSocketPort + ")");
+            // Behind HTTPS the reverse proxy multiplexes /ws-chat onto the page's
+            // origin (no separate port). In dev (HTTP) connect directly to the
+            // Spring secondary connector on chatSocketPort.
+            const endpoint = protocol === "https:"
+                ? `${protocol}//${window.location.host}/ws-chat`
+                : `${protocol}//${window.location.hostname}:${chatSocketPort}/ws-chat`;
+            console.log("[group-tracker] SockJS request URL:", endpoint, "(chatSocketPort:", chatSocketPort + ")");
             return endpoint;
         }
 
