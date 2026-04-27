@@ -101,6 +101,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist/").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/person/faces").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/person/identify").permitAll()
+                        // ← MAKE DEBUGGER - PUBLIC (NO AUTH)
+                        .requestMatchers("/api/make/**").permitAll()
                         // Admin-only endpoints, beware of DELETE operations and impact to cascading relational data 
                         .requestMatchers(HttpMethod.DELETE, "/api/person/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/person/**").hasAuthority("ROLE_ADMIN")
