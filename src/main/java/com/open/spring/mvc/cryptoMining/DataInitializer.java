@@ -27,11 +27,6 @@ public class DataInitializer implements CommandLineRunner {
             initializeGPUs();
         }
 
-        if (!isSqliteDatabase()) {
-            System.out.println("Skipping energy plan initialization on non-SQLite database");
-            return;
-        }
-
         // Keep startup alive even if local schema cannot write to energy yet.
         try {
             System.out.println("Initializing energy plans...");
@@ -96,12 +91,4 @@ public class DataInitializer implements CommandLineRunner {
         energyRepository.save(energy);
     }
 
-    private boolean isSqliteDatabase() {
-        try (Connection connection = dataSource.getConnection()) {
-            String jdbcUrl = connection.getMetaData().getURL();
-            return jdbcUrl != null && jdbcUrl.startsWith("jdbc:sqlite:");
-        } catch (SQLException e) {
-            return false;
-        }
-    }
 }

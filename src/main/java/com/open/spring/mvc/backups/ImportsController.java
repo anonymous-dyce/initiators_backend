@@ -49,7 +49,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
-import org.sqlite.SQLiteException;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -537,8 +536,8 @@ public class ImportsController {
                     connection.commit();
                     return "Data imported successfully from JSON file: " + jsonFile.getAbsolutePath();
                 }
-            } catch (SQLiteException e) {
-                if (e.getMessage().contains("database is locked")) {
+            } catch (SQLException e) {
+                if (isRetryableLockException(e)) {
                     retries--;
                     try {
                         Thread.sleep(100);
@@ -571,49 +570,62 @@ public class ImportsController {
         
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            
-            Set<String> allTables = getAllTables(connection);
-            Set<String> tablesInJson = new HashSet<>(data.keySet());
-            
-            // Update sequence tables first
-            updateSequenceTables(connection, data);
-            
-            // Insert data into other tables
-            for (Map.Entry<String, List<Map<String, Object>>> entry : data.entrySet()) {
-                String tableName = sanitizeTableName(entry.getKey());
-                List<Map<String, Object>> tableData = entry.getValue();
-                
-                if (!tableName.endsWith("_seq")) {
-                    try {
-                        ensureTableExists(connection, tableName, tableData, removeExcessData);
-                        
-                        if (removeExcessData) {
-                            clearTableData(connection, tableName);
+            boolean constraintsDisabled = false;
+
+            try {
+                disableReferentialIntegrity(connection);
+                constraintsDisabled = true;
+
+                Set<String> allTables = getAllTables(connection);
+                Set<String> tablesInJson = new HashSet<>(data.keySet());
+
+                // Update sequence tables first
+                updateSequenceTables(connection, data);
+
+                // Insert data into other tables
+                for (Map.Entry<String, List<Map<String, Object>>> entry : data.entrySet()) {
+                    String tableName = sanitizeTableName(entry.getKey());
+                    List<Map<String, Object>> tableData = entry.getValue();
+
+                    if (!tableName.endsWith("_seq")) {
+                        try {
+                            ensureTableExists(connection, tableName, tableData, removeExcessData);
+
+                            if (removeExcessData) {
+                                clearTableData(connection, tableName);
+                            }
+
+                            if (!tableData.isEmpty()) {
+                                insertTableData(connection, tableName, tableData);
+                            }
+                        } catch (SQLException e) {
+                            System.err.println("Error processing table " + tableName + ": " + e.getMessage());
+                            throw e;
                         }
-                        
-                        if (!tableData.isEmpty()) {
-                            insertTableData(connection, tableName, tableData);
-                        }
-                    } catch (SQLException e) {
-                        System.err.println("Error processing table " + tableName + ": " + e.getMessage());
-                        throw e;
                     }
                 }
-            }
-            
-            if (removeExcessData) {
-                System.out.println("Preserving all existing tables not in import data");
-                
-                for (String tableName : allTables) {
-                    if (!tableName.startsWith("sqlite_") && 
-                        !tablesInJson.contains(tableName) && 
-                        !tableName.endsWith("_seq")) {
-                        System.out.println("Preserving existing table not in import: " + tableName);
+
+                if (removeExcessData) {
+                    System.out.println("Preserving all existing tables not in import data");
+
+                    for (String tableName : allTables) {
+                        if (!isSystemTable(tableName) &&
+                            !tablesInJson.contains(tableName) &&
+                            !tableName.endsWith("_seq")) {
+                            System.out.println("Preserving existing table not in import: " + tableName);
+                        }
                     }
                 }
+
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            } finally {
+                if (constraintsDisabled) {
+                    restoreReferentialIntegrity(connection);
+                }
             }
-            
-            connection.commit();
         }
     }
 
@@ -775,9 +787,12 @@ public class ImportsController {
         Set<String> tables = new HashSet<>();
         DatabaseMetaData metaData = connection.getMetaData();
         
-        try (ResultSet rs = metaData.getTables(null, null, "%", new String[]{"TABLE"})) {
+        try (ResultSet rs = metaData.getTables(connection.getCatalog(), connection.getSchema(), "%", new String[]{"TABLE"})) {
             while (rs.next()) {
-                tables.add(rs.getString("TABLE_NAME"));
+                String tableName = rs.getString("TABLE_NAME");
+                if (!isSystemTable(tableName)) {
+                    tables.add(tableName);
+                }
             }
         }
         
@@ -785,7 +800,7 @@ public class ImportsController {
     }
 
     private void clearTableData(Connection connection, String tableName) throws SQLException {
-        String sql = "DELETE FROM " + tableName;
+        String sql = "DELETE FROM " + quoteIdentifier(connection, tableName);
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
             System.out.println("Cleared all data from table: " + tableName);
@@ -817,10 +832,11 @@ public class ImportsController {
 
     private void createSequenceTableIfNotExists(Connection connection, String tableName) throws SQLException {
         if (!tableExists(connection, tableName)) {
-            String sql = "CREATE TABLE " + tableName + " (next_val BIGINT NOT NULL)";
+            String quotedTableName = quoteIdentifier(connection, tableName);
+            String sql = "CREATE TABLE " + quotedTableName + " (next_val BIGINT NOT NULL)";
             try (Statement statement = connection.createStatement()) {
                 statement.execute(sql);
-                String initSql = "INSERT INTO " + tableName + " (next_val) VALUES (0)";
+                String initSql = "INSERT INTO " + quotedTableName + " (next_val) VALUES (0)";
                 statement.execute(initSql);
                 System.out.println("Created table: " + tableName);
             }
@@ -829,13 +845,13 @@ public class ImportsController {
 
     private boolean tableExists(Connection connection, String tableName) throws SQLException {
         DatabaseMetaData meta = connection.getMetaData();
-        try (ResultSet resultSet = meta.getTables(null, null, tableName, null)) {
+        try (ResultSet resultSet = meta.getTables(connection.getCatalog(), connection.getSchema(), tableName, new String[]{"TABLE"})) {
             return resultSet.next();
         }
     }
 
     private void updateSequenceValue(Connection connection, String tableName, long nextValFromJson) throws SQLException {
-        String sql = "UPDATE " + tableName + " SET next_val = CASE WHEN next_val > ? THEN next_val ELSE ? END";
+        String sql = "UPDATE " + quoteIdentifier(connection, tableName) + " SET next_val = CASE WHEN next_val > ? THEN next_val ELSE ? END";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, nextValFromJson);
             statement.setLong(2, nextValFromJson);
@@ -868,7 +884,7 @@ public class ImportsController {
             }
         }
         
-        String sql = buildInsertQuery(tableName, columns);
+        String sql = buildInsertQuery(connection, tableName, columns);
     
         try (PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
             int batchSize = 0;
@@ -897,20 +913,30 @@ public class ImportsController {
         }
     }
 
-    private String buildInsertQuery(String tableName, Set<String> columns) {
-        String columnList = String.join(", ", columns);
-        String valuePlaceholders = String.join(", ", Collections.nCopies(columns.size(), "?"));
-        return "INSERT INTO " + tableName + " (" + columnList + ") VALUES (" + valuePlaceholders + ")";
+    private String buildInsertQuery(Connection connection, String tableName, Set<String> columns) throws SQLException {
+        StringBuilder columnList = new StringBuilder();
+        StringBuilder valuePlaceholders = new StringBuilder();
+
+        for (String column : columns) {
+            if (columnList.length() > 0) {
+                columnList.append(", ");
+                valuePlaceholders.append(", ");
+            }
+            columnList.append(quoteIdentifier(connection, column));
+            valuePlaceholders.append("?");
+        }
+
+        return "INSERT INTO " + quoteIdentifier(connection, tableName) + " (" + columnList + ") VALUES (" + valuePlaceholders + ")";
     }
 
     private Set<String> getExistingColumns(Connection connection, String tableName) throws SQLException {
         Set<String> columns = new HashSet<>();
         
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("PRAGMA table_info(" + tableName + ")")) {
+        DatabaseMetaData metaData = connection.getMetaData();
+        try (ResultSet rs = metaData.getColumns(connection.getCatalog(), connection.getSchema(), tableName, null)) {
             
             while (rs.next()) {
-                columns.add(rs.getString("name"));
+                columns.add(rs.getString("COLUMN_NAME"));
             }
         }
         
@@ -921,12 +947,7 @@ public class ImportsController {
         if (tableData.isEmpty()) {
             System.out.println("No data provided for table: " + tableName + ". Creating with basic structure.");
             if (!tableExists(connection, tableName)) {
-                String sql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
-                             "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                             "name TEXT, " +
-                             "description TEXT, " +
-                             "created_date TEXT" +
-                             ")";
+                String sql = buildBasicTableSql(connection, tableName);
                 try (Statement stmt = connection.createStatement()) {
                     stmt.execute(sql);
                     System.out.println("Created basic table structure for: " + tableName);
@@ -955,29 +976,12 @@ public class ImportsController {
     }
 
     private void createTable(Connection connection, String tableName, Set<String> columns) throws SQLException {
-        StringBuilder sqlBuilder = new StringBuilder("CREATE TABLE IF NOT EXISTS " + tableName + " (");
+        StringBuilder sqlBuilder = new StringBuilder("CREATE TABLE IF NOT EXISTS " + quoteIdentifier(connection, tableName) + " (");
         
         boolean hasIdColumn = columns.stream().anyMatch(col -> col.equalsIgnoreCase("id"));
         
         for (String column : columns) {
-            if (column.equalsIgnoreCase("id") && hasIdColumn) {
-                sqlBuilder.append(column).append(" INTEGER PRIMARY KEY AUTOINCREMENT,");
-            } else if (column.toLowerCase().endsWith("_id") || column.toLowerCase().equals("id")) {
-                sqlBuilder.append(column).append(" INTEGER,");
-            } else if (column.toLowerCase().contains("date") || column.toLowerCase().contains("time")) {
-                sqlBuilder.append(column).append(" TEXT,");
-            } else if (column.toLowerCase().contains("is_") || column.toLowerCase().startsWith("has_") || 
-                      column.toLowerCase().equals("active") || column.toLowerCase().equals("enabled")) {
-                sqlBuilder.append(column).append(" BOOLEAN,");
-            } else if (column.toLowerCase().contains("count") || column.toLowerCase().contains("number") || 
-                      column.toLowerCase().contains("amount") || column.toLowerCase().contains("quantity")) {
-                sqlBuilder.append(column).append(" INTEGER,");
-            } else if (column.toLowerCase().contains("price") || column.toLowerCase().contains("cost") || 
-                      column.toLowerCase().contains("rate")) {
-                sqlBuilder.append(column).append(" REAL,");
-            } else {
-                sqlBuilder.append(column).append(" TEXT,");
-            }
+            sqlBuilder.append(buildColumnDefinition(connection, column, hasIdColumn)).append(",");
         }
         
         if (columns.size() > 0) {
@@ -999,10 +1003,101 @@ public class ImportsController {
     }
 
     private void addColumn(Connection connection, String tableName, String columnName) throws SQLException {
-        String sql = "ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " TEXT";
+        String sql = "ALTER TABLE " + quoteIdentifier(connection, tableName) + " ADD COLUMN " + buildColumnDefinition(connection, columnName, false);
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
         }
+    }
+
+    private String buildBasicTableSql(Connection connection, String tableName) throws SQLException {
+        return "CREATE TABLE IF NOT EXISTS " + quoteIdentifier(connection, tableName) + " ("
+            + buildColumnDefinition(connection, "id", true) + ", "
+            + quoteIdentifier(connection, "name") + " TEXT, "
+            + quoteIdentifier(connection, "description") + " TEXT, "
+            + quoteIdentifier(connection, "created_date") + " TEXT"
+            + ")";
+    }
+
+    private String buildColumnDefinition(Connection connection, String columnName, boolean idColumnPresent) throws SQLException {
+        String quotedColumn = quoteIdentifier(connection, columnName);
+        String lowerColumn = columnName.toLowerCase();
+
+        if (columnName.equalsIgnoreCase("id") && idColumnPresent) {
+            if (isMySqlDatabase(connection)) {
+                return quotedColumn + " BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY";
+            }
+            return quotedColumn + " INTEGER PRIMARY KEY AUTOINCREMENT";
+        } else if (lowerColumn.endsWith("_id") || lowerColumn.equals("id")) {
+            return quotedColumn + " INTEGER";
+        } else if (lowerColumn.contains("date") || lowerColumn.contains("time")) {
+            return quotedColumn + " TEXT";
+        } else if (lowerColumn.contains("is_") || lowerColumn.startsWith("has_") ||
+                   lowerColumn.equals("active") || lowerColumn.equals("enabled")) {
+            return quotedColumn + " BOOLEAN";
+        } else if (lowerColumn.contains("count") || lowerColumn.contains("number") ||
+                   lowerColumn.contains("amount") || lowerColumn.contains("quantity")) {
+            return quotedColumn + " INTEGER";
+        } else if (lowerColumn.contains("price") || lowerColumn.contains("cost") ||
+                   lowerColumn.contains("rate")) {
+            return quotedColumn + " REAL";
+        }
+
+        return quotedColumn + " TEXT";
+    }
+
+    private boolean isMySqlDatabase(Connection connection) throws SQLException {
+        String url = connection.getMetaData().getURL();
+        return url != null && url.startsWith("jdbc:mysql:");
+    }
+
+    private boolean isRetryableLockException(SQLException e) {
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        return message.contains("database is locked") ||
+               message.contains("deadlock") ||
+               message.contains("lock wait timeout") ||
+               message.contains("could not obtain lock");
+    }
+
+    private void disableReferentialIntegrity(Connection connection) throws SQLException {
+        if (isSqliteDatabase(connection)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA foreign_keys = OFF");
+            }
+        } else if (isMySqlDatabase(connection)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("SET FOREIGN_KEY_CHECKS=0");
+            }
+        }
+    }
+
+    private void restoreReferentialIntegrity(Connection connection) throws SQLException {
+        if (isSqliteDatabase(connection)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA foreign_keys = ON");
+            }
+        } else if (isMySqlDatabase(connection)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("SET FOREIGN_KEY_CHECKS=1");
+            }
+        }
+    }
+
+    private String quoteIdentifier(Connection connection, String identifier) throws SQLException {
+        String quote = connection.getMetaData().getIdentifierQuoteString();
+        if (quote == null || quote.isBlank()) {
+            return identifier;
+        }
+
+        String safeIdentifier = identifier.replace(quote, quote + quote);
+        return quote + safeIdentifier + quote;
+    }
+
+    private boolean isSystemTable(String tableName) {
+        return tableName.startsWith("sqlite_")
+            || tableName.startsWith("mysql_")
+            || tableName.startsWith("performance_schema")
+            || tableName.startsWith("information_schema")
+            || tableName.startsWith("sys");
     }
 
     private void manageBackups() {
