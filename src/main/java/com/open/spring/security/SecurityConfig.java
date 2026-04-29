@@ -101,14 +101,18 @@ public class SecurityConfig {
                         // ← GIST CREATION ENDPOINTS - PUBLIC (NO AUTH)
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/grades/create-gist/").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/person/faces").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/person/identify").permitAll()
                         // ← MAKE DEBUGGER - PUBLIC (NO AUTH)
                         .requestMatchers("/api/make/**").permitAll()
                         // Admin-only endpoints, beware of DELETE operations and impact to cascading relational data 
                         .requestMatchers(HttpMethod.DELETE, "/api/person/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/person/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/person/uid/**").permitAll()
+                        // Face biometric data:
+                        //   GET /faces  - teacher/admin only (scanner feed)
+                        //   POST /register - any authenticated user (self-service face enrollment)
+                        .requestMatchers(HttpMethod.GET, "/api/face/faces").hasAnyAuthority("ROLE_TEACHER", "ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/face/register").hasAnyAuthority("ROLE_USER", "ROLE_STUDENT", "ROLE_TEACHER", "ROLE_ADMIN")
+                        .requestMatchers("/api/face/**").hasAnyAuthority("ROLE_TEACHER", "ROLE_ADMIN")
 
                         // All other /api/person/** and /api/people/** operations handled by default rule
                         // ======================================================
@@ -226,6 +230,10 @@ public class SecurityConfig {
         policy.put("DELETE /api/person/**", "ROLE_ADMIN");
         policy.put("PUT /api/person/**", "ROLE_ADMIN");
         policy.put("GET /api/person/uid/**", "permitAll");
+        // Face biometric endpoints
+        policy.put("GET /api/face/faces", "ROLE_TEACHER|ROLE_ADMIN");
+        policy.put("POST /api/face/register", "ROLE_USER|ROLE_STUDENT|ROLE_TEACHER|ROLE_ADMIN");
+        policy.put("/api/face/**", "ROLE_TEACHER|ROLE_ADMIN");
         policy.put("POST /api/assignment-submissions/upload", "ROLE_USER|ROLE_ADMIN|ROLE_TEACHER|ROLE_STUDENT");
         policy.put("/api/exports/**", "ROLE_ADMIN");
         policy.put("/api/imports/**", "ROLE_ADMIN");
