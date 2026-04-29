@@ -1,15 +1,12 @@
 package com.open.spring.mvc.geminiUserPreferences;
 
-import java.util.List;
 import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,9 +23,6 @@ import lombok.NoArgsConstructor;
 @RestController
 @RequestMapping("/api/upai")
 public class UserPreferencesAIController {
-
-    @Autowired
-    private UserPreferencesAIRepository geminiRepository;
 
     private final Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
     private final String geminiApiKey = dotenv.get("GEMINI_API_KEY");
@@ -136,15 +130,9 @@ public class UserPreferencesAIController {
                 }
             }
 
-            // Persist the user's prompt and the raw recommendation text
-            UserPrefernecesAI record = new UserPrefernecesAI(prompt, "");
-            record.setGradingResult(extractedText);
-            UserPrefernecesAI saved = geminiRepository.save(record);
-
             return ResponseEntity.ok(Map.of(
                 "status", "success",
-                "id", saved.getId(),
-                "prompt", saved.getQuestion(),
+                "prompt", prompt,
                 "response", responseObject
             ));
 
@@ -156,16 +144,6 @@ public class UserPreferencesAIController {
             e.printStackTrace();
             return ResponseEntity.status(500).body(Map.of("error", "Internal server error: " + e.getMessage()));
         }
-    }
-
-    // GET - Fetch all grading results (no user filtering)
-    @GetMapping("/grades")
-    public ResponseEntity<?> getGrades() {
-        List<UserPrefernecesAI> results = geminiRepository.findAll();
-        return ResponseEntity.ok(Map.of(
-            "count", results.size(),
-            "results", results
-        ));
     }
 
     // Helper method to extract grading text from Gemini API response
