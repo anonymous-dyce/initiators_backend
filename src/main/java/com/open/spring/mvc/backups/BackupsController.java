@@ -161,10 +161,12 @@ public class BackupsController {
     private List<String> getTableNames(Connection connection) throws SQLException {
         List<String> tableNames = new ArrayList<>();
 
-        try (ResultSet resultSet = connection.getMetaData().getTables(null, null, null, new String[]{"TABLE"})) {
+        try (ResultSet resultSet = connection.getMetaData().getTables(connection.getCatalog(), connection.getSchema(), "%", new String[]{"TABLE"})) {
             while (resultSet.next()) {
                 String tableName = resultSet.getString("TABLE_NAME");
-                tableNames.add(tableName);
+                if (!isSystemTable(tableName)) {
+                    tableNames.add(tableName);
+                }
             }
         }
 
@@ -217,6 +219,14 @@ public class BackupsController {
 
         String safeIdentifier = identifier.replace(quote, quote + quote);
         return quote + safeIdentifier + quote;
+    }
+
+    private boolean isSystemTable(String tableName) {
+        return tableName.startsWith("sqlite_")
+            || tableName.startsWith("mysql_")
+            || tableName.startsWith("performance_schema")
+            || tableName.startsWith("information_schema")
+            || tableName.startsWith("sys");
     }
 
     // ========== SHUTDOWN BACKUP OPERATIONS ==========
