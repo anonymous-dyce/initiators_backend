@@ -101,216 +101,67 @@ public class ModelInit {
     @Transactional
     CommandLineRunner run() {
         return args -> {
-            // Ensure unified `adventure` table exists before any seeding
-            if (isSqliteDatabase()) {
-                try {
-                    if (dataSource != null) {
-                        try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
-                        // ========== DATABASE CLEANUP - DISABLED ==========
-                        // Database cleanup has been disabled to prevent tables from being dropped on startup
-                        // Uncomment the section below if you need to manually clean up specific tables
-                        /*
-                        System.out.println("Starting database cleanup...");
-                        
-                        // 1. Drop User tables (0 rows, 0 code references)
-                        try {
-                            st.execute("DROP TABLE IF EXISTS user;");
-                            st.execute("DROP TABLE IF EXISTS user_seq;");
-                            System.out.println("Dropped 'user' tables");
-                        } catch (SQLException e) {
-                            System.out.println("WARNING: Could not drop user tables");
-                        }
-                        
-                        // 2. Drop responses table (0 rows, 0 code references)
-                        try {
-                            st.execute("DROP TABLE IF EXISTS responses;");
-                            System.out.println("Dropped 'responses' table");
-                        } catch (SQLException e) {
-                            System.out.println("WARNING: Could not drop responses table");
-                        }
-                        
-                        // 3. Drop student table (0 rows, 0 code references)
-                        try {
-                            st.execute("DROP TABLE IF EXISTS student;");
-                            System.out.println("Dropped 'student' table");
-                        } catch (SQLException e) {
-                            System.out.println("WARNING: Could not drop student table");
-                        }
-                        
-                        // 4. Drop person_user_mapping tables (0 rows, 0 code references)
-                        try {
-                            st.execute("DROP TABLE IF EXISTS person_user_mapping;");
-                            st.execute("DROP TABLE IF EXISTS person_user_mapping_seq;");
-                            System.out.println("Dropped 'person_user_mapping' tables");
-                        } catch (SQLException e) {
-                            System.out.println("WARNING: Could not drop person_user_mapping tables");
-                        }
-                        
-                        // 5. Drop assignment_queue table (0 rows, migrated to JSON)
-                        try {
-                            st.execute("DROP TABLE IF EXISTS assignment_queue;");
-                            st.execute("DROP TABLE IF EXISTS assignment_queue_seq;");
-                            System.out.println("Dropped 'assignment_queue' tables");
-                        } catch (SQLException e) {
-                            System.out.println("WARNING: Could not drop assignment_queue tables");
-                        }
-                        
-                        // 6. Drop orphaned Hibernate Envers audit tables (0 @Audited annotations)
-                        String[] auditTables = {
-                            "HTE_announcement", "HTE_assignment", "HTE_assignment_queue",
-                            "HTE_assignment_submission", "HTE_bank", "HTE_bathroom_queue",
-                            "HTE_blackjack", "HTE_comment", "HTE_game", "HTE_gemini",
-                            "HTE_groups", "HTE_hall_pass", "HTE_issue", "HTE_jokes",
-                            "HTE_note", "HTE_person", "HTE_person_role", "HTE_person_user_mapping",
-                            "HTE_plant", "HTE_progress_bar", "HTE_quiz_scores", "HTE_resume",
-                            "HTE_student_queue", "HTE_synergy_grade", "HTE_synergy_grade_request",
-                            "HTE_tasks", "HTE_teacher", "HTE_teacher_grading_team_teach",
-                            "HTE_tinkle", "HTE_train", "HTE_user", "HTE_user_stocks_table",
-                            "HT_groups", "HT_person", "HT_submitter"
-                        };
-                        
-                        int droppedAuditTables = 0;
-                        for (String tableName : auditTables) {
-                            try {
-                                st.execute("DROP TABLE IF EXISTS " + tableName + ";");
-                                droppedAuditTables++;
-                            } catch (SQLException ignored) {}
-                        }
-                        System.out.println("Dropped " + droppedAuditTables + " orphaned audit tables");
-                        
-                        System.out.println("Conservative database cleanup complete!");
-                        */
-                        // ========== DATABASE CLEANUP - END ==========
+            // Ensure unified manual tables exist before any seeding.
+            if (dataSource != null) {
+                try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
+                    String createAdventure = buildAdventureTableSql(conn);
+                    st.execute(createAdventure);
+                    System.out.println("Ensured 'adventure' table exists");
 
+                    try {
+                        st.execute("ALTER TABLE adventure ADD COLUMN details TEXT;");
+                        System.out.println("Added 'details' column to 'adventure' table");
+                    } catch (SQLException ignore) {
+                        // column may already exist; ignore
+                    }
 
-                        String create = "CREATE TABLE IF NOT EXISTS adventure ("
-                                + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                                + "person_id INTEGER,"
-                                + "person_uid TEXT,"
-                                + "question_id INTEGER,"
-                                + "question_title TEXT,"
-                                + "question_content TEXT,"
-                                + "question_category TEXT,"
-                                + "question_points INTEGER,"
-                                + "choice_id INTEGER,"
-                                + "choice_text TEXT,"
-                                + "choice_is_correct INTEGER,"
-                                + "answer_is_correct INTEGER,"
-                                + "answer_content TEXT,"
-                                + "chat_score INTEGER,"
-                                + "rubric_ruid TEXT,"
-                                + "rubric_criteria TEXT,"
-                                + "balance REAL,"
-                                + "created_at DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))"
-                                + ");";
-                        st.execute(create);
-                        System.out.println("Ensured 'adventure' table exists");
-                        // Seed default adventure rows if none exist (instantiate in code)
-                        // TEMPORARILY DISABLED - Adventure seeding causes NOT NULL constraint failures
-                        /*
-                        try {
-                            long advCount = 0L;
-                            try { advCount = adventureJpaRepository.count(); } catch (Exception ignore) { advCount = 0L; }
-                            if (advCount == 0L) {
-                                Adventure[] defaults = Adventure.init();
-                                for (Adventure a : defaults) {
-                                    try { adventureJpaRepository.save(a); } catch (Exception ignored) {}
-                                }
-                                System.out.println("Seeded default Adventure rows via Adventure.init()");
+                    try {
+                        Iterable<Adventure> all = adventureJpaRepository.findAll();
+                        for (Adventure adv : all) {
+                            if (adv.getDetails() == null || adv.getDetails().trim().isEmpty()) {
+                                String choiceText = adv.getChoiceText();
+                                String answerContent = adv.getAnswerContent();
+                                String rubricCriteria = adv.getRubricCriteria();
+                                String rubricRuid = adv.getRubricRuid();
+                                StringBuilder sb = new StringBuilder();
+                                sb.append('{');
+                                sb.append("\"choiceId\":").append(adv.getChoiceId() == null ? "null" : adv.getChoiceId()).append(',');
+                                sb.append("\"choiceText\":").append(choiceText == null ? "null" : ("\"" + choiceText.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" )).append(',');
+                                sb.append("\"choiceIsCorrect\":").append(adv.getChoiceIsCorrect() == null ? "null" : adv.getChoiceIsCorrect()).append(',');
+                                sb.append("\"answerIsCorrect\":").append(adv.getAnswerIsCorrect() == null ? "null" : adv.getAnswerIsCorrect()).append(',');
+                                sb.append("\"answerContent\":").append(answerContent == null ? "null" : ("\"" + answerContent.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" )).append(',');
+                                sb.append("\"chatScore\":").append(adv.getChatScore() == null ? "null" : adv.getChatScore()).append(',');
+                                sb.append("\"rubricRuid\":").append(rubricRuid == null ? "null" : ("\"" + rubricRuid.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" )).append(',');
+                                sb.append("\"rubricCriteria\":").append(rubricCriteria == null ? "null" : ("\"" + rubricCriteria.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" ));
+                                sb.append('}');
+                                adv.setDetails(sb.toString());
+                                try { adventureJpaRepository.save(adv); } catch (Exception ignored) {}
                             }
-                        */
-                        try {
-                            // Ensure 'details' column exists and migrate existing columns into JSON 'details'
-                            try {
-                                try {
-                                    st.execute("ALTER TABLE adventure ADD COLUMN details TEXT;");
-                                    System.out.println("Added 'details' column to 'adventure' table");
-                                } catch (SQLException ignore) {
-                                    // column may already exist; ignore
-                                }
-                                try {
-                                    // Migrate existing Adventure rows into details JSON if empty
-                                    Iterable<Adventure> all = adventureJpaRepository.findAll();
-                                    for (Adventure adv : all) {
-                                        if (adv.getDetails() == null || adv.getDetails().trim().isEmpty()) {
-                                            String choiceText = adv.getChoiceText();
-                                            String answerContent = adv.getAnswerContent();
-                                            String rubricCriteria = adv.getRubricCriteria();
-                                            String rubricRuid = adv.getRubricRuid();
-                                            StringBuilder sb = new StringBuilder();
-                                            sb.append('{');
-                                            sb.append("\"choiceId\":").append(adv.getChoiceId() == null ? "null" : adv.getChoiceId()).append(',');
-                                            sb.append("\"choiceText\":").append(choiceText == null ? "null" : ("\"" + choiceText.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" )).append(',');
-                                            sb.append("\"choiceIsCorrect\":").append(adv.getChoiceIsCorrect() == null ? "null" : adv.getChoiceIsCorrect()).append(',');
-                                            sb.append("\"answerIsCorrect\":").append(adv.getAnswerIsCorrect() == null ? "null" : adv.getAnswerIsCorrect()).append(',');
-                                            sb.append("\"answerContent\":").append(answerContent == null ? "null" : ("\"" + answerContent.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" )).append(',');
-                                            sb.append("\"chatScore\":").append(adv.getChatScore() == null ? "null" : adv.getChatScore()).append(',');
-                                            sb.append("\"rubricRuid\":").append(rubricRuid == null ? "null" : ("\"" + rubricRuid.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" )).append(',');
-                                            sb.append("\"rubricCriteria\":").append(rubricCriteria == null ? "null" : ("\"" + rubricCriteria.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" ));
-                                            sb.append('}');
-                                            adv.setDetails(sb.toString());
-                                            try { adventureJpaRepository.save(adv); } catch (Exception ignored) {}
-                                        }
-                                    }
-                                    System.out.println("Migrated Adventure rows into 'details' JSON where missing");
-                                } catch (Exception ignore) {
-                                }
-                            } catch (Throwable t) {
-                                // ignore migration failures
+                        }
+                        System.out.println("Migrated Adventure rows into 'details' JSON where missing");
+                    } catch (Exception ignore) {
+                    }
+
+                    String createGames = buildGamesTableSql(conn);
+                    st.execute(createGames);
+                    System.out.println("Ensured 'games' table exists");
+
+                    try {
+                        long gameCount = 0L;
+                        try { gameCount = gameJpaRepository.count(); } catch (Exception ignore) { gameCount = 0L; }
+                        if (gameCount == 0L) {
+                            Game[] defaults = Game.init();
+                            for (Game g : defaults) {
+                                try { gameJpaRepository.save(g); } catch (Exception ignored) {}
                             }
-                        } catch (Throwable t) {
-                            // don't fail startup for seeding issues
+                            System.out.println("Seeded default Game rows via Game.init()");
                         }
-                        }
+                    } catch (Throwable t) {
                     }
                 } catch (SQLException e) {
-                    System.err.println("Failed to ensure 'adventure' table: " + e.getMessage());
+                    System.err.println("Failed to ensure manual tables: " + e.getMessage());
                 }
-            } else {
-                System.out.println("Skipping SQLite-only 'adventure' bootstrap on non-SQLite database");
             }
-
-                // Ensure unified `games` table exists before any seeding
-                if (isSqliteDatabase()) {
-                    try {
-                        if (dataSource != null) {
-                            try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
-                            String createGames = "CREATE TABLE IF NOT EXISTS games ("
-                                    + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                                    + "person_id INTEGER,"
-                                    + "person_uid TEXT,"
-                                    + "type TEXT,"
-                                    + "tx_id TEXT,"
-                                    + "bet_amount REAL,"
-                                    + "amount REAL,"
-                                    + "balance REAL,"
-                                    + "result TEXT,"
-                                    + "success INTEGER,"
-                                    + "details TEXT,"
-                                    + "created_at DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))"
-                                    + ");";
-                            st.execute(createGames);
-                            System.out.println("Ensured 'games' table exists");
-                            try {
-                                long gameCount = 0L;
-                                try { gameCount = gameJpaRepository.count(); } catch (Exception ignore) { gameCount = 0L; }
-                                if (gameCount == 0L) {
-                                    Game[] defaults = Game.init();
-                                    for (Game g : defaults) {
-                                        try { gameJpaRepository.save(g); } catch (Exception ignored) {}
-                                    }
-                                    System.out.println("Seeded default Game rows via Game.init()");
-                                }
-                            } catch (Throwable t) {
-                            }
-                            }
-                        }
-                    } catch (SQLException e) {
-                        System.err.println("Failed to ensure 'games' table: " + e.getMessage());
-                    }
-                } else {
-                    System.out.println("Skipping SQLite-only 'games' bootstrap on non-SQLite database");
-                }
 
             if (new File("volumes/.skip-modelinit").exists()) {
                 System.out.println("Skip flag detected, ModelInit will not run");
@@ -534,5 +385,68 @@ public class ModelInit {
         } catch (SQLException e) {
             return false;
         }
+    }
+
+    private boolean isMySqlDatabase(Connection connection) throws SQLException {
+        String jdbcUrl = connection.getMetaData().getURL();
+        return jdbcUrl != null && jdbcUrl.startsWith("jdbc:mysql:");
+    }
+
+    private String quoteIdentifier(Connection connection, String identifier) throws SQLException {
+        String quote = connection.getMetaData().getIdentifierQuoteString();
+        if (quote == null || quote.isBlank()) {
+            return identifier;
+        }
+
+        String safeIdentifier = identifier.replace(quote, quote + quote);
+        return quote + safeIdentifier + quote;
+    }
+
+    private String buildAdventureTableSql(Connection connection) throws SQLException {
+        String idColumn = isMySqlDatabase(connection)
+            ? quoteIdentifier(connection, "id") + " BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY"
+            : quoteIdentifier(connection, "id") + " INTEGER PRIMARY KEY AUTOINCREMENT";
+
+        return "CREATE TABLE IF NOT EXISTS " + quoteIdentifier(connection, "adventure") + " ("
+                + idColumn + ","
+                + quoteIdentifier(connection, "person_id") + " INTEGER,"
+                + quoteIdentifier(connection, "person_uid") + " TEXT,"
+                + quoteIdentifier(connection, "question_id") + " INTEGER,"
+                + quoteIdentifier(connection, "question_title") + " TEXT,"
+                + quoteIdentifier(connection, "question_content") + " TEXT,"
+                + quoteIdentifier(connection, "question_category") + " TEXT,"
+                + quoteIdentifier(connection, "question_points") + " INTEGER,"
+                + quoteIdentifier(connection, "choice_id") + " INTEGER,"
+                + quoteIdentifier(connection, "choice_text") + " TEXT,"
+                + quoteIdentifier(connection, "choice_is_correct") + " INTEGER,"
+                + quoteIdentifier(connection, "answer_is_correct") + " INTEGER,"
+                + quoteIdentifier(connection, "answer_content") + " TEXT,"
+                + quoteIdentifier(connection, "chat_score") + " INTEGER,"
+                + quoteIdentifier(connection, "rubric_ruid") + " TEXT,"
+                + quoteIdentifier(connection, "rubric_criteria") + " TEXT,"
+                + quoteIdentifier(connection, "balance") + " REAL,"
+                + quoteIdentifier(connection, "created_at") + " TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                + ");";
+    }
+
+    private String buildGamesTableSql(Connection connection) throws SQLException {
+        String idColumn = isMySqlDatabase(connection)
+            ? quoteIdentifier(connection, "id") + " BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY"
+            : quoteIdentifier(connection, "id") + " INTEGER PRIMARY KEY AUTOINCREMENT";
+
+        return "CREATE TABLE IF NOT EXISTS " + quoteIdentifier(connection, "games") + " ("
+                + idColumn + ","
+                + quoteIdentifier(connection, "person_id") + " INTEGER,"
+                + quoteIdentifier(connection, "person_uid") + " TEXT,"
+                + quoteIdentifier(connection, "type") + " TEXT,"
+                + quoteIdentifier(connection, "tx_id") + " TEXT,"
+                + quoteIdentifier(connection, "bet_amount") + " REAL,"
+                + quoteIdentifier(connection, "amount") + " REAL,"
+                + quoteIdentifier(connection, "balance") + " REAL,"
+                + quoteIdentifier(connection, "result") + " TEXT,"
+                + quoteIdentifier(connection, "success") + " INTEGER,"
+                + quoteIdentifier(connection, "details") + " TEXT,"
+                + quoteIdentifier(connection, "created_at") + " TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                + ");";
     }
 }

@@ -118,30 +118,8 @@ public class PersonApiController {
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
-    /**
-     * Retrieves all Person entities that have face data registered.
-     * Returns a list of maps containing 'uid' and 'faceData'.
-     * 
-     * @return A ResponseEntity containing a list of maps with uid and faceData.
-     */
-    @GetMapping("/person/faces")
-    // Public for bathroom-pass face matcher (self-service). Security is via token/cookie in other workflows.
-    public ResponseEntity<List<Map<String, String>>> getPersonFaces() {
-        List<Person> people = repository.findByFaceDataIsNotNull();
-        List<Map<String, String>> faces = new ArrayList<>();
-        for (Person person : people) {
-            Map<String, String> face = new HashMap<>();
-            face.put("uid", person.getUid());
-            String name = person.getName();
-            if (name == null || name.isEmpty()) {
-                name = person.getUid();
-            }
-            face.put("name", name);
-            face.put("faceData", person.getFaceData());
-            faces.add(face);
-        }
-        return new ResponseEntity<>(faces, HttpStatus.OK);
-    }
+    // Removed: GET /api/person/faces has been moved to FaceApiController (/api/face/faces).
+    // Access is now restricted to ROLE_TEACHER and ROLE_ADMIN only.
 
 
     /**
@@ -182,14 +160,6 @@ public class PersonApiController {
             boolean uidChangeRequested = personDto.getUid() != null
                     && !personDto.getUid().equals(existingPerson.getUid());
             
-            // Log faceData receipt for debugging
-            if (personDto.getFaceData() != null) {
-                logger.info("UPDATE received faceData for user: {}. Length: {}", email, personDto.getFaceData().length());
-            }
-
-            boolean faceDataChanged = personDto.getFaceData() != null
-                    && !personDto.getFaceData().equals(existingPerson.getFaceData());
-
             if (!isAdmin && uidChangeRequested) {
                 logger.warn("AUDIT profile_update_blocked actor={} reason=uid_change_not_allowed",
                         existingPerson.getUid());
@@ -241,11 +211,6 @@ public class PersonApiController {
             if (kasmChanged) {
                 existingPerson.setKasmServerNeeded(personDto.getKasmServerNeeded());
                 changedFields.append("kasmServerNeeded,");
-            }
-            if (faceDataChanged) {
-                existingPerson.setFaceData(personDto.getFaceData());
-                changedFields.append("faceData,");
-                logger.info("Persisting faceData for user: {}. Length: {}", email, existingPerson.getFaceData().length());
             }
             // Save the updated person back to the repository
             Person updatedPerson = repository.save(existingPerson);
@@ -318,7 +283,7 @@ public class PersonApiController {
         private String name;
         private String pfp;
         private Boolean kasmServerNeeded;
-        private String faceData;
+        // faceData removed: use POST /api/face/register (FaceApiController) instead.
     }
 
     /**
@@ -724,10 +689,6 @@ public class PersonApiController {
             if (sidChanged) {
                 existingPerson.setSid(personDto.getSid());
                 changedFields.append("sid,");
-            }
-            if (personDto.getFaceData() != null) {
-                existingPerson.setFaceData(personDto.getFaceData());
-                changedFields.append("faceData,");
             }
             // Save the updated person back to the repository
             repository.save(existingPerson);
